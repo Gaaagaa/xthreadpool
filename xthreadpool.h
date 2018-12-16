@@ -8,14 +8,16 @@
  * 文件标识：
  * 文件摘要：使用 C++11 新标准 thread 线程对象实现的线程池类。
  * 
- * 当前版本：1.0.0.0
+ * 当前版本：1.1.0.0
  * 作    者：
- * 完成日期：2018年12月12日
- * 版本摘要：
+ * 完成日期：2018年12月16日
+ * 版本摘要：增加模板参数列表的类型索引功能（请参看 X_type_index 的设计），
+ *          使得 x_threadpool_t::submit_task_ex() 接口的 xargs 参数列表
+ *          中的 x_running_checker_t::x_holder_t 类型参数可放置在任意位置。
  * 
- * 取代版本：
+ * 取代版本：1.0.0.0
  * 原作者  ：
- * 完成日期：
+ * 完成日期：2018年12月12日
  * 版本摘要：
  * </pre>
  */
@@ -94,7 +96,7 @@ struct X_Build_index_tuple< 0, X_Index_tuple< _Indexes... > >
  * using X_Indices = nstuple::X_Build_index_tuple< std::tuple_size< X_Tuple >::value >::__type;
  * 
  * template< size_t... _Ind >
- * void _S_Invoke(X_Tuple && xtuple, nstuple::X_Index_tuple< _Ind... > x_unused_object)
+ * void _S_Invoke(X_Tuple && xtuple, nstuple::X_Index_tuple< _Ind... >)
  * {
  *     call_test(std::get< _Ind >(std::move(xtuple))...);
  * }
@@ -107,13 +109,14 @@ struct X_Build_index_tuple< 0, X_Index_tuple< _Indexes... > >
  *     return 0;
  * }
  * </pre>
+ * @endcode
  */
 
 ////////////////////////////////////////////////////////////////////////////////
 
 /**
  * @struct X_check
- * @brief  协助 X_has_type() 进行类型检查。
+ * @brief  协助 X_tuple_has_type() 进行类型检查。
  */
 template< bool... >
 struct X_type_check
@@ -123,16 +126,20 @@ struct X_type_check
 
 /**
  * @brief 判断 tuple 对象内是否包含某个数据类型。
+ * 
+ * @param[in ] _Fy    : 待判断的数据类型。
+ * @param[in ] _Ty... : tuple 的参数列表。
+ * 
  */
 template< typename _Fy, typename... _Ty >
-constexpr bool X_has_type(const std::tuple< _Ty... > & x_unused_object)
+constexpr bool X_tuple_has_type(const std::tuple< _Ty... > &)
 {
     return !std::is_same< X_type_check< false, std::is_same< _Fy, _Ty >::value... >,
                           X_type_check< std::is_same< _Fy, _Ty >::value..., false > >::value;
 }
 
 /**
- * @brief X_has_type() 接口的测试代码如下所示。
+ * @brief X_tuple_has_type() 接口的测试代码如下所示。
  * @code
  * <pre>
  * #include <type_traits>
@@ -142,15 +149,16 @@ constexpr bool X_has_type(const std::tuple< _Ty... > & x_unused_object)
  * int main(int argc, char * argv[])
  * {
  *     std::cout << std::boolalpha;
- *     std::cout << nstuple::X_has_type< int    >(std::tuple< int, char, double >{ 100, 'a', 3.1415926 }) << std::endl;
- *     std::cout << nstuple::X_has_type< char   >(std::tuple< int, char, double >{ 100, 'a', 3.1415926 }) << std::endl;
- *     std::cout << nstuple::X_has_type< double >(std::tuple< int, char, double >{ 100, 'a', 3.1415926 }) << std::endl;
- *     std::cout << nstuple::X_has_type< float  >(std::tuple< int, char, double >{ 100, 'a', 3.1415926 }) << std::endl;
- *     std::cout << nstuple::X_has_type< void   >(std::tuple< int, char, double >{ 100, 'a', 3.1415926 }) << std::endl;
+ *     std::cout << nstuple::X_tuple_has_type< int    >(std::tuple< int, char, double >{ 100, 'a', 3.1415926 }) << std::endl;
+ *     std::cout << nstuple::X_tuple_has_type< char   >(std::tuple< int, char, double >{ 100, 'a', 3.1415926 }) << std::endl;
+ *     std::cout << nstuple::X_tuple_has_type< double >(std::tuple< int, char, double >{ 100, 'a', 3.1415926 }) << std::endl;
+ *     std::cout << nstuple::X_tuple_has_type< float  >(std::tuple< int, char, double >{ 100, 'a', 3.1415926 }) << std::endl;
+ *     std::cout << nstuple::X_tuple_has_type< void   >(std::tuple< int, char, double >{ 100, 'a', 3.1415926 }) << std::endl;
  * 
  *     return 0;
  * }
  * </pre>
+ * @endcode
  */
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -161,7 +169,7 @@ struct X_type_count;
 
 /**
  * @struct X_type_count< _Fy, _Hy, _Ty... >
- * @brief  递归的数据类型统计类，协助 X_type_nums() 接口类型数量计数。
+ * @brief  递归的数据类型统计类。
  */
 template< typename _Fy, typename _Hy, typename... _Ty >
 struct X_type_count< _Fy, _Hy, _Ty... >
@@ -170,8 +178,8 @@ struct X_type_count< _Fy, _Hy, _Ty... >
 };
 
 /**
- * @struct X_type_count< _Fy, _Hy >
- * @brief  终止递归的数据类型统计类，协助 X_type_nums() 接口类型数量计数。
+ * @struct X_type_count< _Fy >
+ * @brief  终止递归的数据类型统计类。
  */
 template< typename _Fy >
 struct X_type_count< _Fy >
@@ -183,13 +191,13 @@ struct X_type_count< _Fy >
  * @brief 统计 tuple 对象内某个数据类型的数量。
  */
 template< typename _Fy, typename... _Ty >
-constexpr size_t X_type_nums(const std::tuple< _Ty... > & x_unused_object)
+constexpr size_t X_tuple_type_count(const std::tuple< _Ty... > &)
 {
     return X_type_count< _Fy, _Ty... >::value;
 }
 
 /**
- * @brief X_type_nums() 接口的测试代码如下所示。
+ * @brief X_tuple_type_count() 接口的测试代码如下所示。
  * @code
  * <pre>
  * #include <type_traits>
@@ -200,15 +208,179 @@ constexpr size_t X_type_nums(const std::tuple< _Ty... > & x_unused_object)
  * {
  *     std::cout << nstuple::X_type_count< int, int, int, char, char, double >::value << std::endl;
  * 
- *     std::cout << nstuple::X_type_nums< int    >(std::tuple< int, int, int, char, char, double >{}) << std::endl;
- *     std::cout << nstuple::X_type_nums< char   >(std::tuple< int, int, int, char, char, double >{}) << std::endl;
- *     std::cout << nstuple::X_type_nums< double >(std::tuple< int, int, int, char, char, double >{}) << std::endl;
- *     std::cout << nstuple::X_type_nums< float  >(std::tuple< int, int, int, char, char, double >{}) << std::endl;
- *     std::cout << nstuple::X_type_nums< void * >(std::tuple< int, int, int, char, char, double >{}) << std::endl;
+ *     std::cout << nstuple::X_tuple_type_count< int    >(std::tuple< int, int, int, char, char, double >{}) << std::endl;
+ *     std::cout << nstuple::X_tuple_type_count< char   >(std::tuple< int, int, int, char, char, double >{}) << std::endl;
+ *     std::cout << nstuple::X_tuple_type_count< double >(std::tuple< int, int, int, char, char, double >{}) << std::endl;
+ *     std::cout << nstuple::X_tuple_type_count< float  >(std::tuple< int, int, int, char, char, double >{}) << std::endl;
+ *     std::cout << nstuple::X_tuple_type_count< void * >(std::tuple< int, int, int, char, char, double >{}) << std::endl;
  * 
  *     return 0;
  * }
  * </pre>
+ * @endcode
+ */
+
+////////////////////////////////////////////////////////////////////////////////
+
+/**
+ * @struct X_type_index
+ * @brief  类型索引模板：从变参列表中查找指定类型的索引位置（以 < _Fy, _Indx > 结对进行判断）。
+ * 
+ * @param[in ] _Fy    : 待查找类型。
+ * @param[in ] _Indx  : 待查找类型在变参列表中的第几个（以 0 为起始索引）。
+ * @param[in ] _Ty... : 变参列表。
+ */
+template< typename _Fy, size_t _Indx, typename... _Ty >
+struct X_type_index;
+
+/**
+ * @struct X_type_index_iter
+ * @brief  协助 X_type_index 进行 变参列表 递归遍历操作。
+ * 
+ * @param[in ] _Vy    : 模板特化的参数；
+ *                      为 true  时，转向 X_type_index_jter 继续进行递归遍历；
+ *                      为 false 时，转回 X_type_index 继续进行递归遍历。
+ * @param[in ] _Fy    : 待查找类型。
+ * @param[in ] _Indx  : 待查找类型在变参列表中的第几个（以 0 为起始索引）。
+ * @param[in ] _Ty... : 变参列表。
+ */
+template< bool _Vy, typename _Fy, size_t _Indx, typename... _Ty >
+struct X_type_index_iter;
+
+/**
+ * @struct X_type_index_jter
+ * @brief  协助 X_type_index_iter 进行 变参列表 递归遍历操作。
+ * 
+ * @param[in ] _Indx  : 待查找类型在变参列表中的第几个（以 0 为起始索引）；
+ *                      为 0 时，终止递归下降，否则转回 X_type_index 继续进行递归遍历。
+ * @param[in ] _Fy    : 待查找类型。
+ * @param[in ] _Ty... : 变参列表。
+ */
+template< size_t _Indx, typename _Fy, typename... _Ty >
+struct X_type_index_jter;
+
+/**
+ * @brief 终止 X_type_index_jter 递归下降。
+ */
+template< typename _Fy, typename... _Ty >
+struct X_type_index_jter< 0, _Fy, _Ty... >
+{
+	enum { value = 0 };
+};
+
+/**
+ * @brief 转回 X_type_index 继续进行递归下降遍历。
+ */
+template< size_t _Indx, typename _Fy, typename... _Ty >
+struct X_type_index_jter
+{
+	enum { value = 1 + X_type_index< _Fy, _Indx - 1, _Ty... >::value };
+};
+
+/**
+ * @brief 转向 X_type_index_jter 继续进行递归遍历。
+ */
+template< typename _Fy, size_t _Indx, typename... _Ty >
+struct X_type_index_iter< true, _Fy, _Indx, _Ty... >
+{
+	enum { value = 0 + X_type_index_jter< _Indx, _Fy, _Ty...>::value };
+};
+
+/**
+ * @brief 转回 X_type_index 继续进行递归遍历。
+ */
+template< typename _Fy, size_t _Indx, typename... _Ty >
+struct X_type_index_iter< false, _Fy, _Indx, _Ty... >
+{
+	enum { value = 1 + X_type_index< _Fy, _Indx, _Ty... >::value };
+};
+
+/**
+ * @brief X_type_index 递归遍历入口。
+ */
+template< typename _Fy, size_t _Indx, typename _Hy, typename... _Ty >
+struct X_type_index< _Fy, _Indx, _Hy, _Ty... >
+{
+	enum { value = X_type_index_iter< std::is_same< _Fy, _Hy >::value, _Fy, _Indx, _Ty... >::value };
+};
+
+/**
+ * @brief X_type_index 递归遍历终结位置。
+ */
+template< typename _Fy, size_t _Indx >
+struct X_type_index< _Fy, _Indx >
+{
+	enum { value = 0x1FFFFFFF };
+};
+
+/**
+ * @brief 从 tuple 的变参列表中查找指定类型的索引位置（以 < _Fy, _Indx > 结对进行操作）。
+ * 
+ * @param [in ] _Fy   : 待查找类型。
+ * @param [in ] _Indx : 待查找类型在变参列表中的第几个（以 0 为起始索引）。
+ * @param [in ] _Ty   : tuple 的参数列表。
+ * 
+ * @return size_t
+ *         - 返回索引位置;
+ *         - 若返回值大于等于 X_type_index< _Fy, _Indx >::value[0x1FFFFFFF] 时，表示未找到查找的类型。
+ */
+template< typename _Fy, size_t _Indx, typename... _Ty >
+constexpr size_t X_tuple_type_index(const std::tuple< _Ty... > &)
+{
+    return X_type_index< _Fy, _Indx, _Ty... >::value;
+}
+
+/**
+ * @brief X_type_index 和 X_tuple_type_index() 接口的测试代码如下所示。
+ * @code
+ * <pre>
+ * #include <type_traits>
+ * #include <tuple>
+ * #include <iostream>
+ * 
+ * int main(int argc, char * argv[])
+ * {
+ *     std::cout << "< int   , 0 > : " << nstuple::X_type_index< int , 0 >::value << std::endl;
+ *     std::cout << "< int   , 0 > : " << nstuple::X_type_index< int , 0, int >::value << std::endl;
+ *     std::cout << "< char  , 0 > : " << nstuple::X_type_index< char, 0, int, int >::value << std::endl;
+ *     std::cout << "< int   , 1 > : " << nstuple::X_type_index< int , 1, int, int, char >::value << std::endl;
+ *     std::cout << "< char  , 0 > : " << nstuple::X_type_index< char, 0, int, int, char, char >::value << std::endl;
+ *     std::cout << "< char  , 1 > : " << nstuple::X_type_index< char, 1, int, int, char, char, char >::value << std::endl;
+ * 
+ *     std::cout << "< int   , 1 > : " << nstuple::X_tuple_type_index< int   , 1 >(std::tuple< int, int, int, char, float, double >{}) << std::endl;
+ *     std::cout << "< int & , 1 > : " << nstuple::X_tuple_type_index< int & , 1 >(std::tuple< int, int, int, char, float, double >{}) << std::endl;
+ *     std::cout << "< char  , 1 > : " << nstuple::X_tuple_type_index< char  , 1 >(std::tuple< int, int, int, char, float, double >{}) << std::endl;
+ *     std::cout << "< double, 1 > : " << nstuple::X_tuple_type_index< double, 1 >(std::tuple< int, int, int, char, float, double >{}) << std::endl;
+ *     std::cout << "< float , 1 > : " << nstuple::X_tuple_type_index< float , 1 >(std::tuple< int, int, int, char, float, double >{}) << std::endl;
+ *     std::cout << "< void *, 1 > : " << nstuple::X_tuple_type_index< void *, 1 >(std::tuple< int, int, int, char, float, double >{}) << std::endl;
+ * 
+ *     std::tuple< int, int, int, char, float, double > xtuple{ 100, 200, 300, 'A', 1.234F, 1.234 };
+ * 
+ *     std::cout << " xtpule< 0 > = " << std::get< 0 >(xtuple) << std::endl;
+ *     std::cout << " xtpule< 1 > = " << std::get< 1 >(xtuple) << std::endl;
+ *     std::cout << " xtpule< 2 > = " << std::get< 2 >(xtuple) << std::endl;
+ *     std::cout << " xtpule< 3 > = " << std::get< 3 >(xtuple) << std::endl;
+ *     std::cout << " xtpule< 4 > = " << std::get< 4 >(xtuple) << std::endl;
+ *     std::cout << " xtpule< 5 > = " << std::get< 5 >(xtuple) << std::endl;
+ * 
+ *     std::get< nstuple::X_tuple_type_index< int   , 0 >(xtuple) >(xtuple) = 101;
+ *     std::get< nstuple::X_tuple_type_index< int   , 1 >(xtuple) >(xtuple) = 201;
+ *     std::get< nstuple::X_tuple_type_index< int   , 2 >(xtuple) >(xtuple) = 301;
+ *     std::get< nstuple::X_tuple_type_index< char  , 0 >(xtuple) >(xtuple) = 'B';
+ *     std::get< nstuple::X_tuple_type_index< float , 0 >(xtuple) >(xtuple) = 1.245F;
+ *     std::get< nstuple::X_tuple_type_index< double, 0 >(xtuple) >(xtuple) = 1.236;
+ * 
+ *     std::cout << " xtpule< int   , 0 >[0] = " << std::get< 0 >(xtuple) << std::endl;
+ *     std::cout << " xtpule< int   , 1 >[1] = " << std::get< 1 >(xtuple) << std::endl;
+ *     std::cout << " xtpule< int   , 2 >[2] = " << std::get< 2 >(xtuple) << std::endl;
+ *     std::cout << " xtpule< char  , 0 >[3] = " << std::get< 3 >(xtuple) << std::endl;
+ *     std::cout << " xtpule< float , 0 >[4] = " << std::get< 4 >(xtuple) << std::endl;
+ *     std::cout << " xtpule< double, 0 >[5] = " << std::get< 5 >(xtuple) << std::endl;
+ * 
+ *     return 0;
+ * }
+ * </pre>
+ * @endcode
  */
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -418,7 +590,7 @@ private:
      * @struct x_task_tuple_t
      * @brief  内部的任务对象实现类（带 x_running_checker_t 回调检测对象）。
      */
-    template< typename _Func, typename _Tuple >
+    template< typename _Func, typename _Tuple, size_t _Xholder_Index >
     struct x_task_tuple_t : public x_task_t
     {
         using _Indices = typename nstuple::X_Build_index_tuple< std::tuple_size< _Tuple >::value >::__type;
@@ -452,12 +624,9 @@ private:
         template< size_t... _Ind >
         void invoke(x_running_checker_t * xchecker_ptr, nstuple::X_Index_tuple< _Ind... >)
         {
-#if __cplusplus > 201103L
-            std::get< x_threadpool_t::x_running_checker_t::x_holder_t >(_M_args) = xchecker_ptr;
-#else // __cplusplus <= 201103L
-            std::get< 0 >(_M_args) = xchecker_ptr;
-#endif // __cplusplus
-            auto xinvoker = std::bind(std::forward< _Func >(_M_func), std::get< _Ind >(std::move(_M_args))...);
+            std::get< _Xholder_Index >(_M_args) = xchecker_ptr;
+            auto xinvoker = std::bind(std::forward< _Func >(_M_func),
+                                      std::get< _Ind >(std::move(_M_args))...);
             xinvoker();
         }
 
@@ -494,10 +663,14 @@ private:
     static x_task_ptr make_task(const x_task_maker_t< 1 > & xmaker, _Func && xfunc, _Args && ... xargs)
     {
         using _Tuple = typename std::tuple< typename std::decay< _Args >::type... >;
+        using _Index = typename nstuple::X_type_index< x_running_checker_t::x_holder_t, 0, _Args... >;
+
         _Tuple xtuple{ std::forward< _Args >(xargs)... };
 
-        return (new x_task_tuple_t< _Func, _Tuple >(std::forward< _Func >(xfunc),
-                                                    std::forward< _Tuple >(xtuple)));
+        constexpr size_t const xholder_index = _Index::value;
+
+        return (new x_task_tuple_t< _Func, _Tuple, xholder_index >(
+                    std::forward< _Func >(xfunc), std::forward< _Tuple >(xtuple)));
     }
 
 public:
@@ -583,9 +756,14 @@ public:
         if (xthds > m_lst_threads.size())
         {
             // 增加工作线程数量
-            for (size_t xiter_index = m_lst_threads.size();  xiter_index < xthds; ++xiter_index)
+            for (size_t xiter_index = m_lst_threads.size(); xiter_index < xthds; ++xiter_index)
             {
-                m_lst_threads.push_back(std::thread([this](size_t xiter_index) -> void { thread_run(xiter_index); }, xiter_index));
+                m_lst_threads.push_back(
+                    std::thread([this](size_t xiter_index) -> void
+                                {
+                                    thread_run(xiter_index);
+                                },
+                                xiter_index));
             }
         }
         else if (m_lst_threads.size() > 0)
@@ -629,8 +807,7 @@ public:
      * 
      * @note xfunc 的回调操作过程中，若需要进行运行时检测（判断工作线程是否可继续运行），
      * 可在 xargs 参数列表中添加一个（且最多一个） x_running_checker_t::x_holder_t 
-     * 占位对象；当前代码版本，对于 C++11 标准，必须放在 xargs 参数列表的首个参数，而更
-     * 高版本的 C++ 标准（C++14, C++17 or later）就不做这个限制，可在参数列表的任意位置。
+     * 占位对象。
      */
     template< typename _Func, typename... _Args >
     void submit_task_ex(_Func && xfunc, _Args && ... xargs)
@@ -742,7 +919,8 @@ private:
                 m_thds_notifier.wait(xunique_locker,
                                      [this, &xht_checker]() -> bool
                                      {
-                                         return ((m_lst_tasks.size() > 0) || (!xht_checker.is_enable_running()));
+                                         return ((m_lst_tasks.size() > 0) ||
+                                                 (!xht_checker.is_enable_running()));
                                      });
 #endif
             }

@@ -240,7 +240,7 @@ int main(int argc, char * argv[])
 		xht_pool.submit_task_ex((functor_task_B(iter)), iter * iter / 2);
 #endif
 	//======================================
-	// 提交任务对象 : 类对象的成员调用
+	// 提交任务对象 : 类对象的成员函数调用
 #if 1
 	memfunc_task mftask(nstep);  // 注意，这个栈区对象的生命期需要在线程池关闭前存活
 	nstep += 100;
