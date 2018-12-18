@@ -837,7 +837,8 @@ public:
      */
     void cleanup_task(void)
     {
-        x_task_ptr xtask_ptr = nullptr;
+        x_task_ptr         xtask_ptr    = nullptr;
+        x_task_deleter_t * xdeleter_ptr = nullptr;
 
         std::lock_guard< std::mutex > xautolock(m_lock_task);
 
@@ -848,7 +849,13 @@ public:
 
             if (nullptr != xtask_ptr)
             {
-                delete xtask_ptr;
+                xdeleter_ptr = const_cast< x_task_deleter_t * >(xtask_ptr->get_deleter());
+                if (nullptr != xdeleter_ptr)
+                {
+                    xdeleter_ptr->delete_task(xtask_ptr);
+                    xdeleter_ptr = nullptr;
+                }
+
                 xtask_ptr = nullptr;
             }
 
