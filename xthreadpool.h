@@ -1,21 +1,26 @@
 ﻿/**
  * @file    xthreadpool.h
  * <pre>
- * Copyright (c) 2018, Gaaagaa All rights reserved.
+ * Copyright (c) 2019, Gaaagaa All rights reserved.
  * 
  * 文件名称：xthreadpool.h
  * 创建日期：2018年12月12日
  * 文件标识：
  * 文件摘要：使用 C++11 新标准 thread 线程对象实现的线程池类。
  * 
- * 当前版本：1.1.0.0
+ * 当前版本：1.2.0.0
+ * 作    者：
+ * 完成日期：2019年01月18日
+ * 版本摘要：任务对象增加挂起操作功能，解决“某一类任务对象在线程池中可顺序执行”的问题。
+ * 
+ * 历史版本：1.1.0.0
  * 作    者：
  * 完成日期：2018年12月16日
  * 版本摘要：增加模板参数列表的类型索引功能（请参看 X_type_index 的设计），
  *          使得 x_threadpool_t::submit_task_ex() 接口的 xargs 参数列表
  *          中的 x_running_checker_t::x_holder_t 类型参数可放置在任意位置。
  * 
- * 取代版本：1.0.0.0
+ * 历史版本：1.0.0.0
  * 原作者  ：
  * 完成日期：2018年12月12日
  * 版本摘要：
@@ -27,13 +32,20 @@
 
 #include <list>
 #include <mutex>
-#include <condition_variable>
 #include <chrono>
 #include <functional>
 #include <thread>
 #include <atomic>
 #include <utility>
 #include <type_traits>
+
+#ifndef XTP_USE_CONDITION_VARIABLE
+#define XTP_USE_CONDITION_VARIABLE 1
+#endif // XTP_USE_CONDITION_VARIABLE
+
+#if XTP_USE_CONDITION_VARIABLE
+#include <condition_variable>
+#endif // XTP_USE_CONDITION_VARIABLE
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -396,31 +408,60 @@ constexpr size_t X_tuple_type_index(const std::tuple< _Ty... > &)
  */
 class x_threadpool_t
 {
-    // constructor/destructor
-public:
-    explicit x_threadpool_t(void) noexcept
-        : m_enable_running(false)
-        , m_xthds_capacity(0)
-        , m_task_count(0)
-    {
-
-    }
-
-    virtual ~x_threadpool_t(void)
-    {
-        if (is_startup())
-            shutdown();
-        cleanup_task();
-    }
-
-    x_threadpool_t(const x_threadpool_t & xobject) = delete;
-    x_threadpool_t(x_threadpool_t & xobject) = delete;
-    x_threadpool_t(const x_threadpool_t && xobject) = delete;
-    x_threadpool_t(x_threadpool_t && xobject) = delete;
-    x_threadpool_t & operator=(const x_threadpool_t & xobject) = delete;
-    x_threadpool_t & operator=(x_threadpool_t && xobject) = delete;
-
     // common data types
+private:
+    /**
+     * @class x_spinlock_t
+     * @brief 简易的旋转锁类。
+     */
+    class x_spinlock_t
+    {
+        // constructor/destructor
+    public:
+        x_spinlock_t(void)  { }
+        ~x_spinlock_t(void) { }
+
+        // public interfaces
+    public:
+        /**********************************************************/
+        /**
+         * @brief 尝试加锁的操作接口。
+         */
+	    bool try_lock(void)
+		{
+		    return !m_xspin_flag.test_and_set(std::memory_order_acquire);
+		}
+
+        /**********************************************************/
+        /**
+         * @brief 加锁操作接口。
+         */
+        void lock(void)
+        {
+            while (m_xspin_flag.test_and_set(std::memory_order_acquire))
+                std::this_thread::yield();
+        }
+
+        /**********************************************************/
+        /**
+         * @brief 解锁操作接口。
+         */
+        void unlock(void)
+        {
+            m_xspin_flag.clear(std::memory_order_release);
+        }
+
+        // data members
+    private:
+        std::atomic_flag   m_xspin_flag = ATOMIC_FLAG_INIT;   ///< 旋转标志
+    };
+
+#if XTP_USE_CONDITION_VARIABLE
+    using x_locker_t = std::mutex;
+#else // !XTP_USE_CONDITION_VARIABLE
+    using x_locker_t = x_spinlock_t;
+#endif // XTP_USE_CONDITION_VARIABLE
+
 public:
     /** 前置声明 */
     struct x_running_checker_t;
@@ -447,6 +488,25 @@ public:
 
         /**********************************************************/
         /**
+         * @brief 判断 任务对象 是否挂起。
+         * @note  若任务对象处于挂起状态，工作线程提取任务时，则跳过该对象。
+         */
+        virtual bool is_suspend(void) const { return false; }
+
+        /**********************************************************/
+        /**
+         * @brief 设置任务对象的运行标识。
+         * 
+         * @note
+         * <pre>
+         *   工作线程在提取到任务对象后，则立即调用 set_running_flag(true) 操作；
+         *   执行 run() 操作返回后，又调用 set_running_flag(false) 操作。
+         * </pre>
+         */
+        virtual void set_running_flag(bool xrunning_flag) { }
+
+        /**********************************************************/
+        /**
          * @brief 获取任务对象的删除器，重载该接口，可实现自定义的任务对象回收方式。
          * 
          * @note
@@ -465,7 +525,7 @@ public:
     };
 
     /** 任务对象指针类型 */
-    typedef x_task_t * x_task_ptr;
+    using x_task_ptr_t = x_task_t *;
 
     /**
      * @struct x_running_checker_t
@@ -487,12 +547,10 @@ public:
         {
         }
 
-        x_running_checker_t(const x_running_checker_t & xobject) = delete;
-        x_running_checker_t(x_running_checker_t & xobject) = delete;
-        x_running_checker_t(const x_running_checker_t && xobject) = delete;
         x_running_checker_t(x_running_checker_t && xobject) = delete;
-        x_running_checker_t & operator=(const x_running_checker_t & xobject) = delete;
         x_running_checker_t & operator=(x_running_checker_t && xobject) = delete;
+        x_running_checker_t(const x_running_checker_t & xobject) = delete;
+        x_running_checker_t & operator=(const x_running_checker_t & xobject) = delete;
 
         // common data types
     public:
@@ -544,7 +602,7 @@ public:
         /**
          * @brief 对 任务对象 进行资源回收操作（删除操作）。
          */
-        virtual void delete_task(x_task_ptr xtask_ptr)
+        virtual void delete_task(x_task_ptr_t xtask_ptr)
         {
             if (nullptr != xtask_ptr)
                 delete xtask_ptr;
@@ -649,7 +707,7 @@ private:
      * @brief 以 bind 参数方式创建任务对象。
      */
     template< typename _Func, typename... _Args >
-    static x_task_ptr make_task(const x_task_maker_t< 0 > & xmaker, _Func && xfunc, _Args && ... xargs)
+    static x_task_ptr_t make_task(const x_task_maker_t< 0 > & xmaker, _Func && xfunc, _Args && ... xargs)
     {
         auto xbinder = std::bind(std::forward< _Func >(xfunc), std::forward< _Args >(xargs)...);
         return (new x_task_bind_t< decltype(xbinder) >(std::forward< decltype(xbinder) >(xbinder)));
@@ -660,7 +718,7 @@ private:
      * @brief 以 tuple 参数方式创建任务对象。
      */
     template< typename _Func, typename... _Args >
-    static x_task_ptr make_task(const x_task_maker_t< 1 > & xmaker, _Func && xfunc, _Args && ... xargs)
+    static x_task_ptr_t make_task(const x_task_maker_t< 1 > & xmaker, _Func && xfunc, _Args && ... xargs)
     {
         using _Tuple = typename std::tuple< typename std::decay< _Args >::type... >;
         using _Index = typename nstuple::X_type_index< x_running_checker_t::x_holder_t, 0, _Args... >;
@@ -673,15 +731,39 @@ private:
                     std::forward< _Func >(xfunc), std::forward< _Tuple >(xtuple)));
     }
 
+    // common invoking
 public:
     /**********************************************************/
     /**
      * @brief 返回硬件线程上下文的数量。
      */
-    static size_t hardware_concurrency(void) noexcept
+    static inline size_t hardware_concurrency(void) noexcept
     {
         return std::thread::hardware_concurrency();
     }
+
+    // constructor/destructor
+public:
+    explicit x_threadpool_t(void) noexcept
+        : m_enable_running(false)
+        , m_xthds_capacity(0)
+        , m_enable_get_task(true)
+        , m_task_count(0)
+    {
+
+    }
+
+    ~x_threadpool_t(void)
+    {
+        if (is_startup())
+            shutdown();
+        cleanup_task();
+    }
+
+    x_threadpool_t(x_threadpool_t && xobject) = delete;
+    x_threadpool_t & operator=(x_threadpool_t && xobject) = delete;
+    x_threadpool_t(const x_threadpool_t & xobject) = delete;
+    x_threadpool_t & operator=(const x_threadpool_t & xobject) = delete;
 
     // public interfaces
 public:
@@ -704,6 +786,7 @@ public:
         // 启动各个工作线程
         try
         {
+            m_enable_get_task = true;
             resize((0 != xthds) ? xthds : (2 * hardware_concurrency() + 1));
         }
         catch(...)
@@ -721,7 +804,14 @@ public:
      */
     void shutdown(void)
     {
-        resize(0);
+        try
+        {
+            resize(0);
+        }
+        catch(...)
+        {
+
+        }
     }
 
     /**********************************************************/
@@ -748,7 +838,7 @@ public:
      */
     void resize(size_t xthds)
     {
-        std::lock_guard< std::mutex > xautolock_thds(m_lock_thread);
+        std::lock_guard< x_locker_t > xautolock_thds(m_lock_thread);
 
         m_enable_running = (0 != xthds);
         m_xthds_capacity = xthds;
@@ -768,11 +858,13 @@ public:
         }
         else if (m_lst_threads.size() > 0)
         {
+#if XTP_USE_CONDITION_VARIABLE
             // 通知所有工作线程对象，检测退出事件
             {
-                std::lock_guard< std::mutex > xautolock_task(m_lock_task);
+                std::lock_guard< x_locker_t > xautolock_task(m_lock_smt_task);
                 m_thds_notifier.notify_all();
             }
+#endif // XTP_USE_CONDITION_VARIABLE
 
             // 递减工作线程数量
             while (m_lst_threads.size() > xthds)
@@ -789,15 +881,20 @@ public:
     /**
      * @brief 提交任务对象。
      */
-    void submit_task(x_task_ptr xtask_ptr)
+    void submit_task(x_task_ptr_t xtask_ptr)
     {
         if (nullptr != xtask_ptr)
         {
-            std::lock_guard< std::mutex > xautolock(m_lock_task);
-            m_lst_tasks.push_back(xtask_ptr);
+            m_lock_smt_task.lock();
+
+            m_lst_smt_tasks.push_back(xtask_ptr);
             m_task_count.fetch_add(1);
 
+#if XTP_USE_CONDITION_VARIABLE
             m_thds_notifier.notify_one();
+#endif // XTP_USE_CONDITION_VARIABLE
+
+            m_lock_smt_task.unlock();
         }
     }
 
@@ -837,15 +934,23 @@ public:
      */
     void cleanup_task(void)
     {
-        x_task_ptr         xtask_ptr    = nullptr;
+        x_task_ptr_t       xtask_ptr    = nullptr;
         x_task_deleter_t * xdeleter_ptr = nullptr;
 
-        std::lock_guard< std::mutex > xautolock(m_lock_task);
+        m_enable_get_task = false;
 
-        while (m_lst_tasks.size() > 0)
+        std::lock_guard< x_locker_t > xautolock_run(m_lock_run_task);
+        std::lock_guard< x_locker_t > xautolock_smt(m_lock_smt_task);
+
+        if (m_lst_smt_tasks.size() > 0)
         {
-            xtask_ptr = m_lst_tasks.front();
-            m_lst_tasks.pop_front();
+            m_lst_run_tasks.splice(m_lst_run_tasks.end(), std::move(m_lst_smt_tasks));
+        }
+
+        while (m_lst_run_tasks.size() > 0)
+        {
+            xtask_ptr = m_lst_run_tasks.front();
+            m_lst_run_tasks.pop_front();
 
             if (nullptr != xtask_ptr)
             {
@@ -858,28 +963,61 @@ public:
 
                 xtask_ptr = nullptr;
             }
-
-            m_task_count.fetch_sub(1);
         }
+
+        m_enable_get_task = true;
+        m_task_count.store(0);
     }
 
     // internal invoking
 private:
     /**********************************************************/
     /**
-     * @brief 从任务队列中获取任务对象。
+     * @brief 获取任务队列的任务数量。
      */
-    x_task_ptr get_task(void)
+    inline size_t get_lst_task_size(void) const
     {
-        x_task_ptr xtask_ptr = nullptr;
+        return (m_lst_run_tasks.size() + m_lst_smt_tasks.size());
+    }
+
+    /**********************************************************/
+    /**
+     * @brief 从任务队列中提取任务对象。
+     */
+    x_task_ptr_t get_task(void)
+    {
+        x_task_ptr_t xtask_ptr = nullptr;
+        if (!m_enable_get_task)
+        {
+            return nullptr;
+        }
+
+        std::lock_guard< x_locker_t > xautolock(m_lock_run_task);
 
         {
-            std::lock_guard< std::mutex > xautolock(m_lock_task);
-            if (!m_lst_tasks.empty())
+            m_lock_smt_task.lock();
+            if (m_lst_smt_tasks.size() > 0)
             {
-                xtask_ptr = m_lst_tasks.front();
-                m_lst_tasks.pop_front();
+                m_lst_run_tasks.splice(m_lst_run_tasks.end(), std::move(m_lst_smt_tasks));
             }
+            m_lock_smt_task.unlock();
+        }
+
+        for (std::list< x_task_ptr_t >::iterator itlst = m_lst_run_tasks.begin();
+             (itlst != m_lst_run_tasks.end()) && m_enable_get_task;
+             ++itlst)
+        {
+            if ((nullptr == *itlst) || !(*itlst)->is_suspend())
+            {
+                xtask_ptr = *itlst;
+                m_lst_run_tasks.erase(itlst);
+                break;
+            }
+        }
+
+        if (nullptr != xtask_ptr)
+        {
+            xtask_ptr->set_running_flag(true);
         }
 
         return xtask_ptr;
@@ -905,31 +1043,52 @@ private:
 
     /**********************************************************/
     /**
+     * @brief 使当前线程让出 CPU 时间片。
+     */
+    inline void thread_yield(size_t & xcounter)
+    {
+        if (xcounter++ < 16)
+        {
+            std::this_thread::yield();
+        }
+        else
+        {
+            xcounter = 0;
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+    }
+
+    /**********************************************************/
+    /**
      * @brief 工作线程的执行流程。
      */
     void thread_run(size_t xthread_index)
     {
         x_running_checker_t xht_checker(this, xthread_index);
 
-        x_task_ptr         xtask_ptr    = nullptr;
+        x_task_ptr_t       xtask_ptr    = nullptr;
         x_task_deleter_t * xdeleter_ptr = nullptr;
+
+        size_t xcounter = 0;
+
+        m_enable_get_task = true;
 
         while (xht_checker.is_enable_running())
         {
-            if (m_lst_tasks.size() <= 0)
+            if (get_lst_task_size() <= 0)
             {
-#if 0
-                std::this_thread::sleep_for(std::chrono::milliseconds(1));
-                continue;
-#else
-                std::unique_lock< std::mutex > xunique_locker(m_lock_task);
+#if XTP_USE_CONDITION_VARIABLE
+                std::unique_lock< x_locker_t > xunique_locker(m_lock_smt_task);
                 m_thds_notifier.wait(xunique_locker,
-                                     [this, &xht_checker]() -> bool
+                                     [this, &xht_checker](void) -> bool
                                      {
-                                         return ((m_lst_tasks.size() > 0) ||
+                                         return ((get_lst_task_size() > 0) ||
                                                  (!xht_checker.is_enable_running()));
                                      });
-#endif
+#else // !XTP_USE_CONDITION_VARIABLE
+                thread_yield(xcounter);
+                continue;
+#endif // XTP_USE_CONDITION_VARIABLE
             }
 
             if (!xht_checker.is_enable_running())
@@ -940,12 +1099,27 @@ private:
             xtask_ptr = get_task();
             if (nullptr == xtask_ptr)
             {
+                if (get_lst_task_size() > 0)
+                    thread_yield(xcounter);
                 continue;
             }
 
             if (xht_checker.is_enable_running())
             {
                 xtask_ptr->run(&xht_checker);
+            }
+
+            // 执行完任务对象后，将任务对象转换为 非挂起状态，
+            // 加锁进行操作，是为了与 get_task() 内的操作保持队列的同步
+            {
+                // 标识当前不可提取待执行的任务对象，迫使 get_task() 内部迅速解锁
+                m_enable_get_task = false;
+
+                m_lock_run_task.lock();
+                xtask_ptr->set_running_flag(false);
+                m_lock_run_task.unlock();
+
+                m_enable_get_task = true;
             }
 
             xdeleter_ptr = const_cast< x_task_deleter_t * >(xtask_ptr->get_deleter());
@@ -960,15 +1134,21 @@ private:
 
     // data members
 private:
-    volatile bool            m_enable_running;  ///< 工作线程继续运行的标识值
-    std::mutex               m_lock_thread;     ///< 工作线程对象的队列的同步操作锁
-    volatile size_t          m_xthds_capacity;  ///< 工作线程对象的上限数量
-    std::list< std::thread > m_lst_threads;     ///< 工作线程对象的队列（列表）
-    std::condition_variable  m_thds_notifier;   ///< 工作线程对象的通知器（条件变量）
+    volatile bool              m_enable_running;  ///< 工作线程继续运行的标识值
+    x_locker_t                 m_lock_thread;     ///< 工作线程对象的队列的同步操作锁
+    volatile size_t            m_xthds_capacity;  ///< 工作线程对象的上限数量
+    std::list< std::thread >   m_lst_threads;     ///< 工作线程对象的队列
 
-    std::mutex               m_lock_task;       ///< 任务队列的同步操作锁
-    std::list< x_task_ptr >  m_lst_tasks;       ///< 任务对象队列（列表）
-    std::atomic< size_t >    m_task_count;      ///< 任务对象计数器
+#if XTP_USE_CONDITION_VARIABLE
+    std::condition_variable    m_thds_notifier;   ///< 工作线程对象的通知器（条件变量）
+#endif // XTP_USE_CONDITION_VARIABLE
+
+    x_locker_t                 m_lock_smt_task;   ///< 用于提交操作的任务队列的同步操作锁
+    std::list< x_task_ptr_t >  m_lst_smt_tasks;   ///< 用于提交操作的任务队列
+    x_locker_t                 m_lock_run_task;   ///< 待执行的任务队列的同步操作锁
+    std::list< x_task_ptr_t >  m_lst_run_tasks;   ///< 待执行的任务队列
+    volatile bool              m_enable_get_task; ///< 标识当前是否可提取待执行的任务对象
+    std::atomic< size_t >      m_task_count;      ///< 任务对象计数器
 };
 
 //====================================================================
@@ -991,7 +1171,7 @@ SELECTANY x_threadpool_t::x_task_deleter_t x_threadpool_t::_S_task_common_delete
 typedef x_threadpool_t::x_running_checker_t x_running_checker_t;
 typedef x_threadpool_t::x_task_t            x_task_t;
 typedef x_threadpool_t::x_task_deleter_t    x_task_deleter_t;
-typedef x_threadpool_t::x_task_ptr          x_task_ptr;
+typedef x_threadpool_t::x_task_ptr_t        x_task_ptr_t;
 
 ////////////////////////////////////////////////////////////////////////////////
 
