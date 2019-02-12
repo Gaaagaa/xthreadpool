@@ -28,8 +28,6 @@
 
 ////////////////////////////////////////////////////////////////////////////////
 
-#if 0
-
 /**********************************************************/
 /**
  * @brief C 函数模式的任务接口。
@@ -180,14 +178,14 @@ int main(int argc, char * argv[])
 
 	//======================================
 	// 提交任务对象 : C 函数接口的任务
-#if 1
+#if 0
 	nstep += 0;
 	for (int iter = nstep; iter < (nstep + 100); iter += 10)
 		xht_pool.submit_task_ex(func_task, iter, iter * iter);
 #endif
 	//======================================
 	// 提交任务对象 : lambda 表达式
-#if 1
+#if 0
 	nstep += 100;
 	for (int iter = nstep; iter < (nstep + 100); iter += 10)
 		xht_pool.submit_task_ex(
@@ -202,7 +200,7 @@ int main(int argc, char * argv[])
 			},
 			x_running_checker_t::xholder());
 #endif
-#if 1
+#if 0
 	nstep += 100;
 	for (int iter = nstep; iter < (nstep + 100); iter += 10)
 		xht_pool.submit_task_ex(
@@ -231,8 +229,26 @@ int main(int argc, char * argv[])
 			}, std::string("Lambda B"));
 #endif
 	//======================================
-	// 提交任务对象 : 仿函数对象
+	// 延时测试
 #if 1
+	nstep += 100;
+	for (int iter = nstep; iter < (nstep + 100); iter += 10)
+	{
+		xht_pool.submit_task_ex(
+			[iter](std::chrono::system_clock::time_point timestamp) -> void
+			{
+				std::chrono::microseconds dtime =
+					std::chrono::duration_cast< std::chrono::microseconds >(std::chrono::system_clock::now() - timestamp);
+				printf("delay time: %d, %ld us\n", iter, dtime.count());
+			},
+			std::chrono::system_clock::now());
+
+		std::this_thread::sleep_for(std::chrono::milliseconds(100));
+	}
+#endif
+	//======================================
+	// 提交任务对象 : 仿函数对象
+#if 0
 	nstep += 100;
 	for (int iter = nstep; iter < (nstep + 100); iter += 10)
 		xht_pool.submit_task_ex((functor_task_A(iter)));
@@ -243,7 +259,7 @@ int main(int argc, char * argv[])
 #endif
 	//======================================
 	// 提交任务对象 : 类对象的成员函数调用
-#if 1
+#if 0
 	memfunc_task mftask(nstep);  // 注意，这个栈区对象的生命期需要在线程池关闭前存活
 	nstep += 100;
 	for (int iter = nstep; iter < (nstep + 100); iter += 10)
@@ -253,10 +269,10 @@ int main(int argc, char * argv[])
 #endif
 	//======================================
 	// 提交任务对象 : 重载的任务对象
-#if 1
+#if 0
 	nstep += 100;
 	for (int iter = nstep; iter < (nstep + 100); iter += 10)
-		xht_pool.submit_task((x_task_ptr)(new user_task(iter)));
+		xht_pool.submit_task((x_task_ptr_t)(new user_task(iter)));
 #endif
 	//======================================
 	// 测试动态调整工作线程数量
@@ -311,50 +327,3 @@ int main(int argc, char * argv[])
 
     return 0;
 }
-
-#else
-
-int main(int argc, char * argv[])
-{
-	// 线程池对象
-	x_threadpool_t xht_pool;
-
-	// 启动线程池
-	if (!xht_pool.startup(0))
-	{
-		printf("startup return false!\n");
-		return -1;
-	}
-
-	//======================================
-
-	for (int iter = 10; iter < 100; iter += 1)
-	{
-		xht_pool.submit_task_ex(
-			[iter](std::chrono::system_clock::time_point timestamp) -> void
-			{
-				std::chrono::microseconds dtime =
-					std::chrono::duration_cast< std::chrono::microseconds >(std::chrono::system_clock::now() - timestamp);
-				printf("dtime: %d, %ld\n", iter, dtime.count());
-			},
-			std::chrono::system_clock::now());
-
-		std::this_thread::sleep_for(std::chrono::milliseconds(100));
-	}
-
-	//======================================
-
-	// 等待所有任务执行完成
-	while (xht_pool.task_count() > 0)
-	{
-		printf("task count : %d\n", (int)xht_pool.task_count());
-		std::this_thread::sleep_for(std::chrono::milliseconds(1000));
-	}
-
-	// 关闭线程池
-	xht_pool.shutdown();
-
-    return 0;
-}
-
-#endif

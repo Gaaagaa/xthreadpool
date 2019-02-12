@@ -31,7 +31,6 @@
 #define __XTHREADPOOL_H__
 
 #include <list>
-#include <mutex>
 #include <chrono>
 #include <functional>
 #include <thread>
@@ -44,6 +43,7 @@
 #endif // XTP_USE_CONDITION_VARIABLE
 
 #if XTP_USE_CONDITION_VARIABLE
+#include <mutex>
 #include <condition_variable>
 #endif // XTP_USE_CONDITION_VARIABLE
 
@@ -818,7 +818,10 @@ public:
     /**
      * @brief 判断是否已经启动。
      */
-    inline bool is_startup(void) const { return !m_lst_threads.empty(); }
+    inline bool is_startup(void) const
+    {
+        return (m_enable_running && !m_lst_threads.empty());
+    }
 
     /**********************************************************/
     /**
@@ -1154,13 +1157,11 @@ private:
 //====================================================================
 
 #ifndef SELECTANY
-
-#if (defined(_WIN32) || defined(_WIN64))
+#ifdef _MSC_VER
 #define SELECTANY   __declspec(selectany)
-#else // _WIN32 || _WIN64
+#else // !_MSC_VER
 #define SELECTANY   __attribute__((weak))
-#endif // _WIN32 || _WIN64
-
+#endif // _MSC_VER
 #endif // SELECTANY
 
 /* 任务对象的通用删除器 */
