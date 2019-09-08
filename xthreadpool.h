@@ -271,7 +271,7 @@ struct X_type_index_jter;
 template< typename _Fy, typename... _Ty >
 struct X_type_index_jter< 0, _Fy, _Ty... >
 {
-	enum { value = 0 };
+    enum { value = 0 };
 };
 
 /**
@@ -280,7 +280,7 @@ struct X_type_index_jter< 0, _Fy, _Ty... >
 template< size_t _Indx, typename _Fy, typename... _Ty >
 struct X_type_index_jter
 {
-	enum { value = 1 + X_type_index< _Fy, _Indx - 1, _Ty... >::value };
+    enum { value = 1 + X_type_index< _Fy, _Indx - 1, _Ty... >::value };
 };
 
 /**
@@ -289,7 +289,7 @@ struct X_type_index_jter
 template< typename _Fy, size_t _Indx, typename... _Ty >
 struct X_type_index_iter< true, _Fy, _Indx, _Ty... >
 {
-	enum { value = 0 + X_type_index_jter< _Indx, _Fy, _Ty...>::value };
+    enum { value = 0 + X_type_index_jter< _Indx, _Fy, _Ty...>::value };
 };
 
 /**
@@ -298,7 +298,7 @@ struct X_type_index_iter< true, _Fy, _Indx, _Ty... >
 template< typename _Fy, size_t _Indx, typename... _Ty >
 struct X_type_index_iter< false, _Fy, _Indx, _Ty... >
 {
-	enum { value = 1 + X_type_index< _Fy, _Indx, _Ty... >::value };
+    enum { value = 1 + X_type_index< _Fy, _Indx, _Ty... >::value };
 };
 
 /**
@@ -307,7 +307,7 @@ struct X_type_index_iter< false, _Fy, _Indx, _Ty... >
 template< typename _Fy, size_t _Indx, typename _Hy, typename... _Ty >
 struct X_type_index< _Fy, _Indx, _Hy, _Ty... >
 {
-	enum { value = X_type_index_iter< std::is_same< _Fy, _Hy >::value, _Fy, _Indx, _Ty... >::value };
+    enum { value = X_type_index_iter< std::is_same< _Fy, _Hy >::value, _Fy, _Indx, _Ty... >::value };
 };
 
 /**
@@ -316,7 +316,7 @@ struct X_type_index< _Fy, _Indx, _Hy, _Ty... >
 template< typename _Fy, size_t _Indx >
 struct X_type_index< _Fy, _Indx >
 {
-	enum { value = 0x1FFFFFFF };
+    enum { value = 0x1FFFFFFF };
 };
 
 /**
@@ -421,10 +421,10 @@ private:
         /**
          * @brief 尝试加锁的操作接口。
          */
-	    bool try_lock(void)
-		{
-		    return !m_xspin_flag.test_and_set(std::memory_order_acquire);
-		}
+        bool try_lock(void)
+        {
+            return !m_xspin_flag.test_and_set(std::memory_order_acquire);
+        }
 
         /**********************************************************/
         /**
