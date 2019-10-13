@@ -8,7 +8,12 @@
  * 文件标识：
  * 文件摘要：使用 C++11 新标准 thread 线程对象实现的线程池类。
  * 
- * 当前版本：1.2.0.0
+ * 当前版本：1.2.0.1
+ * 作    者：
+ * 完成日期：2019年10月13日
+ * 版本摘要：改用原子操作的整数计数变量，判断当前是否可提取待执行的任务对象。
+ * 
+ * 历史版本：1.2.0.0
  * 作    者：
  * 完成日期：2019年01月18日
  * 版本摘要：任务对象增加挂起判断接口，解决“某一类任务对象在线程池中可顺序执行”的问题。
@@ -737,7 +742,7 @@ public:
     explicit x_threadpool_t(void) noexcept
         : m_enable_running(false)
         , m_xthds_capacity(0)
-        , m_enable_get_task(true)
+        , m_xst_get_task(0)
         , m_xst_lst_tasks(0)
         , m_xst_task_count(0)
     {
@@ -777,7 +782,7 @@ public:
         // 启动各个工作线程
         try
         {
-            m_enable_get_task = true;
+            m_xst_get_task.store(0);
             resize((0 != xthds) ? xthds : (2 * hardware_concurrency() + 1));
         }
         catch(...)
@@ -935,7 +940,7 @@ public:
         x_task_ptr_t       xtask_ptr    = nullptr;
         x_task_deleter_t * xdeleter_ptr = nullptr;
 
-        m_enable_get_task = false;
+        m_xst_get_task.fetch_add(1);
 
         std::lock_guard< x_locker_t > xautolock_run(m_lock_run_task);
         std::lock_guard< x_locker_t > xautolock_smt(m_lock_smt_task);
@@ -963,7 +968,7 @@ public:
             }
         }
 
-        m_enable_get_task = true;
+        m_xst_get_task.store(0);
         m_xst_lst_tasks.store(0);
         m_xst_task_count.store(0);
     }
@@ -981,12 +986,21 @@ private:
 
     /**********************************************************/
     /**
+     * @brief 当前是否可提取待执行的任务对象。
+     */
+    inline bool is_enable_get_task(void) const
+    {
+        return (0 == m_xst_get_task.load());
+    }
+
+    /**********************************************************/
+    /**
      * @brief 从任务队列中提取任务对象。
      */
     x_task_ptr_t get_task(void)
     {
         x_task_ptr_t xtask_ptr = nullptr;
-        if (!m_enable_get_task)
+        if (!is_enable_get_task())
         {
             return nullptr;
         }
@@ -1003,7 +1017,7 @@ private:
         }
 
         for (std::list< x_task_ptr_t >::iterator itlst = m_lst_run_tasks.begin();
-             (itlst != m_lst_run_tasks.end()) && m_enable_get_task;
+             (itlst != m_lst_run_tasks.end()) && is_enable_get_task();
              ++itlst)
         {
             if ((nullptr == *itlst) || !(*itlst)->is_suspend())
@@ -1071,8 +1085,6 @@ private:
 
         size_t xcounter = 0;
 
-        m_enable_get_task = true;
-
         while (xht_checker.is_enable_running())
         {
             if (get_lst_task_size() <= 0)
@@ -1108,13 +1120,13 @@ private:
             // 加锁进行操作，是为了与 get_task() 内的操作保持队列的同步
             {
                 // 标识当前不可提取待执行的任务对象，迫使 get_task() 内部迅速解锁
-                m_enable_get_task = false;
+                m_xst_get_task.fetch_add(1);
 
                 m_lock_run_task.lock();
                 xtask_ptr->set_running_flag(false);
                 m_lock_run_task.unlock();
 
-                m_enable_get_task = true;
+                m_xst_get_task.fetch_sub(1);
             }
 
             xdeleter_ptr = const_cast< x_task_deleter_t * >(xtask_ptr->get_deleter());
@@ -1142,7 +1154,7 @@ private:
     mutable x_locker_t         m_lock_run_task;   ///< 待执行的任务队列的同步操作锁
     std::list< x_task_ptr_t >  m_lst_run_tasks;   ///< 待执行的任务队列
 
-    volatile bool              m_enable_get_task; ///< 标识当前是否可提取待执行的任务对象
+    std::atomic< size_t >      m_xst_get_task;    ///< 仅为 0 时，表示当前可提取待执行的任务对象
     std::atomic< size_t >      m_xst_lst_tasks;   ///< 任务队列中的对象数量
     std::atomic< size_t >      m_xst_task_count;  ///< 任务对象总数量的计数器
 };
