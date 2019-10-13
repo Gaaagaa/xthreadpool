@@ -25,6 +25,7 @@
 #include <string>
 #include <chrono>
 #include <stdio.h>
+#include <inttypes.h>
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -178,14 +179,14 @@ int main(int argc, char * argv[])
 
 	//======================================
 	// 提交任务对象 : C 函数接口的任务
-#if 0
+#if 1
 	nstep += 0;
 	for (int iter = nstep; iter < (nstep + 100); iter += 10)
 		xht_pool.submit_task_ex(func_task, iter, iter * iter);
 #endif
 	//======================================
 	// 提交任务对象 : lambda 表达式
-#if 0
+#if 1
 	nstep += 100;
 	for (int iter = nstep; iter < (nstep + 100); iter += 10)
 		xht_pool.submit_task_ex(
@@ -200,7 +201,7 @@ int main(int argc, char * argv[])
 			},
 			x_running_checker_t::xholder());
 #endif
-#if 0
+#if 1
 	nstep += 100;
 	for (int iter = nstep; iter < (nstep + 100); iter += 10)
 		xht_pool.submit_task_ex(
@@ -239,7 +240,7 @@ int main(int argc, char * argv[])
 			{
 				std::chrono::microseconds dtime =
 					std::chrono::duration_cast< std::chrono::microseconds >(std::chrono::system_clock::now() - timestamp);
-				printf("delay time: %d, %ld us\n", iter, dtime.count());
+				printf("delay time: %d, %" PRId64 " us\n", iter, dtime.count());
 			},
 			std::chrono::system_clock::now());
 
@@ -248,7 +249,7 @@ int main(int argc, char * argv[])
 #endif
 	//======================================
 	// 提交任务对象 : 仿函数对象
-#if 0
+#if 1
 	nstep += 100;
 	for (int iter = nstep; iter < (nstep + 100); iter += 10)
 		xht_pool.submit_task_ex((functor_task_A(iter)));
@@ -259,7 +260,7 @@ int main(int argc, char * argv[])
 #endif
 	//======================================
 	// 提交任务对象 : 类对象的成员函数调用
-#if 0
+#if 1
 	memfunc_task mftask(nstep);  // 注意，这个栈区对象的生命期需要在线程池关闭前存活
 	nstep += 100;
 	for (int iter = nstep; iter < (nstep + 100); iter += 10)
@@ -269,14 +270,14 @@ int main(int argc, char * argv[])
 #endif
 	//======================================
 	// 提交任务对象 : 重载的任务对象
-#if 0
+#if 1
 	nstep += 100;
 	for (int iter = nstep; iter < (nstep + 100); iter += 10)
 		xht_pool.submit_task((x_task_ptr_t)(new user_task(iter)));
 #endif
 	//======================================
 	// 测试动态调整工作线程数量
-#if 0
+#if 1
 	while (xht_pool.task_count() > 50)
 	{
 		std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -292,7 +293,7 @@ int main(int argc, char * argv[])
 
 			std::chrono::microseconds dtime = std::chrono::duration_cast< std::chrono::microseconds >(time2 - time1);
 
-			printf("======================================>[%ld] after  resize : %d, %d\n",
+			printf("======================================>[%" PRId64 "] after  resize : %d, %d\n",
 				dtime.count(), (int)xht_pool.size(), (int)xht_pool.task_count());
 		}
 	}
@@ -308,7 +309,7 @@ int main(int argc, char * argv[])
 
 			std::chrono::microseconds dtime = std::chrono::duration_cast< std::chrono::microseconds >(time2 - time1);
 
-			printf("======================================>[%ld] after  resize : %d, %d\n",
+			printf("======================================>[%" PRId64 "] after  resize : %d, %d\n",
 				dtime.count(), (int)xht_pool.size(), (int)xht_pool.task_count());
 
 			xht_pool.cleanup_task();
