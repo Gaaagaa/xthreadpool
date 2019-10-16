@@ -1,3 +1,6 @@
 main.exe
 main.obj
+main
+tasks_order.exe
+tasks_order.obj
 .vscode/settings.json
