@@ -409,52 +409,6 @@ class x_threadpool_t
 {
     // common data types
 private:
-    /**
-     * @class x_spinlock_t
-     * @brief 简易的旋转锁类。
-     */
-    class x_spinlock_t
-    {
-        // constructor/destructor
-    public:
-        x_spinlock_t(void)  { }
-        ~x_spinlock_t(void) { }
-
-        // public interfaces
-    public:
-        /**********************************************************/
-        /**
-         * @brief 尝试加锁的操作接口。
-         */
-        bool try_lock(void)
-        {
-            return !m_xspin_flag.test_and_set(std::memory_order_acquire);
-        }
-
-        /**********************************************************/
-        /**
-         * @brief 加锁操作接口。
-         */
-        void lock(void)
-        {
-            while (m_xspin_flag.test_and_set(std::memory_order_acquire))
-                std::this_thread::yield();
-        }
-
-        /**********************************************************/
-        /**
-         * @brief 解锁操作接口。
-         */
-        void unlock(void)
-        {
-            m_xspin_flag.clear(std::memory_order_release);
-        }
-
-        // data members
-    private:
-        std::atomic_flag   m_xspin_flag = ATOMIC_FLAG_INIT;   ///< 旋转标志
-    };
-
     using x_locker_t = std::mutex;
 
 public:
