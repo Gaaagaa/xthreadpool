@@ -126,7 +126,7 @@ int main(int argc, char * argv[])
     x_threadpool_t xht_pool;
 
     // 启动线程池
-    if (!xht_pool.startup(0))
+    if (!xht_pool.startup(0, true))
     {
         printf("startup return false!\n");
         return -1;

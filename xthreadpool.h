@@ -438,7 +438,11 @@ public:
         /**********************************************************/
         /**
          * @brief 判断 任务对象 是否挂起。
-         * @note  若任务对象处于挂起状态，工作线程提取任务时，则跳过该对象。
+         * @note
+         * <pre>
+         *   在启动线程池时，若选择检测任务对象的挂起状态，该接口有效。
+         *   即，任务对象处于挂起状态，工作线程提取任务时，则跳过该对象。
+         * </pre>
          */
         virtual bool is_suspend(void) const { return false; }
 
@@ -696,6 +700,7 @@ public:
     explicit x_threadpool_t(void) noexcept
         : m_enable_running(false)
         , m_xthds_capacity(0)
+        , m_check_suspened(false)
         , m_xst_get_task(0)
         , m_xst_lst_tasks(0)
         , m_xst_task_count(0)
@@ -721,13 +726,14 @@ public:
     /**
      * @brief 启动线程池。
      * 
-     * @param [in ] xthds : 工作线程的数量（若为 0，将取 hardware_concurrency() 返回值的 2倍 + 1）。
+     * @param [in ] xthds          : 工作线程的数量（若为 0，将取 hardware_concurrency() 返回值的 2倍 + 1）。
+     * @param [in ] check_suspened : 是否检测任务对象的挂起状态。
      * 
      * @return bool
      *         - 成功，返回 true；
      *         - 失败，返回 false。
      */
-    bool startup(size_t xthds = 0)
+    bool startup(size_t xthds = 0, bool check_suspened = false)
     {
         // 检测当前是否已经启动
         if (is_startup())
@@ -736,6 +742,8 @@ public:
         // 启动各个工作线程
         try
         {
+            m_check_suspened = check_suspened;
+
             m_xst_get_task.store(0);
             resize((0 != xthds) ? xthds : (2 * hardware_concurrency() + 1));
         }
@@ -970,16 +978,32 @@ private:
             m_lock_smt_task.unlock();
         }
 
-        for (std::list< x_task_ptr_t >::iterator itlst = m_lst_run_tasks.begin();
-             (itlst != m_lst_run_tasks.end()) && is_enable_get_task();
-             ++itlst)
+        if (m_check_suspened)
         {
-            if ((nullptr == *itlst) || !(*itlst)->is_suspend())
+            for (std::list< x_task_ptr_t >::iterator itlst = m_lst_run_tasks.begin();
+                 (itlst != m_lst_run_tasks.end()) && is_enable_get_task();
+                 ++itlst)
             {
-                xtask_ptr = *itlst;
-                m_lst_run_tasks.erase(itlst);
-                m_xst_lst_tasks.fetch_sub(1);
-                break;
+                if ((nullptr == *itlst) || !(*itlst)->is_suspend())
+                {
+                    xtask_ptr = *itlst;
+                    m_lst_run_tasks.erase(itlst);
+                    m_xst_lst_tasks.fetch_sub(1);
+                    break;
+                }
+            }
+        }
+        else
+        {
+            while (!m_lst_run_tasks.empty())
+            {
+                xtask_ptr = m_lst_run_tasks.front();
+                m_lst_run_tasks.pop_front();
+
+                if (nullptr != xtask_ptr)
+                {
+                    break;
+                }
             }
         }
 
@@ -1070,9 +1094,11 @@ private:
                 xtask_ptr->run(&xht_checker);
             }
 
-            // 执行完任务对象后，将任务对象转换为 非挂起状态，
-            // 加锁进行操作，是为了与 get_task() 内的操作保持队列的同步
+            if (m_check_suspened)
             {
+                // 执行完任务对象后，将任务对象转换为 非挂起状态，
+                // 加锁进行操作，是为了与 get_task() 内的操作保持队列的同步
+
                 // 标识当前不可提取待执行的任务对象，迫使 get_task() 内部迅速解锁
                 m_xst_get_task.fetch_add(1);
 
@@ -1081,6 +1107,10 @@ private:
                 m_lock_run_task.unlock();
 
                 m_xst_get_task.fetch_sub(1);
+            }
+            else
+            {
+                xtask_ptr->set_running_flag(false);
             }
 
             xdeleter_ptr = const_cast< x_task_deleter_t * >(xtask_ptr->get_deleter());
@@ -1105,6 +1135,7 @@ private:
     mutable x_locker_t         m_lock_smt_task;   ///< 用于提交操作的任务队列的同步操作锁
     std::list< x_task_ptr_t >  m_lst_smt_tasks;   ///< 用于提交操作的任务队列
 
+    bool                       m_check_suspened;  ///< 提取任务对象时，是否检测其挂起状态
     mutable x_locker_t         m_lock_run_task;   ///< 待执行的任务队列的同步操作锁
     std::list< x_task_ptr_t >  m_lst_run_tasks;   ///< 待执行的任务队列
 
