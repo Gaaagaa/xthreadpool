@@ -857,9 +857,9 @@ public:
             m_xst_lst_tasks.fetch_add(1);
             m_xst_task_count.fetch_add(1);
 
-            m_thds_notifier.notify_one();
-
             m_lock_smt_task.unlock();
+
+            m_thds_notifier.notify_one();
         }
     }
 
